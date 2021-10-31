@@ -11,6 +11,10 @@ if(CMAKE_COMPILER_IS_GNUCC)
 endif()
 
 # find torch
+find_package(PythonInterp REQUIRED)
+# set(CMAKE_PREFIX_PATH /root/alphazero-gomoku/alpha-zero-gomoku-master/build/libtorch/share/cmake/Torch)
+# set it to the link to your conda torch
+set(CMAKE_PREFIX_PATH /home/maweijian/anaconda3/envs/alphazero-gomoku/lib/python3.7/site-packages/torch/share/cmake/Torch)
 find_package(Torch REQUIRED)
 
 # find swig

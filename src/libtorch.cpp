@@ -3,6 +3,7 @@
 // #include <ATen/cuda/CUDAGuard.h>
 
 #include <iostream>
+#include <chrono>
 
 using namespace std::chrono_literals;
 
@@ -68,13 +69,16 @@ std::future<NeuralNetwork::return_type> NeuralNetwork::commit(Gomoku* gomoku) {
   std::promise<return_type> promise;
   auto ret = promise.get_future();
 
+  //auto start = std::chrono::steady_clock::now();
   {
     std::lock_guard<std::mutex> lock(this->lock);
     tasks.emplace(std::make_pair(states, std::move(promise)));
   }
 
   this->cv.notify_all();
-
+  //auto finish = std::chrono::steady_clock::now();
+  //auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+  //std::cout <<"Time to acuiqre lock for a MCTS is: " << duration.count() << "ns" << std::endl;
   return ret;
 }
 
@@ -84,25 +88,35 @@ void NeuralNetwork::infer() {
   std::vector<std::promise<return_type>> promises;
 
   bool timeout = false;
+  //auto start = std::chrono::steady_clock::now();
+  int getlock_cnt = 0;
   while (states.size() < this->batch_size && !timeout) {
     // pop task
     {
       std::unique_lock<std::mutex> lock(this->lock);
       if (this->cv.wait_for(lock, 1ms,
                             [this] { return this->tasks.size() > 0; })) {
-        auto task = std::move(this->tasks.front());
-        states.emplace_back(std::move(task.first));
-        promises.emplace_back(std::move(task.second));
+        //while (states.size() < 4 && this->tasks.size() > 0){
+        getlock_cnt++;
+        while (states.size() < this->batch_size && this->tasks.size() > 0){  
+          auto task = std::move(this->tasks.front());
+          states.emplace_back(std::move(task.first));
+          promises.emplace_back(std::move(task.second));
 
-        this->tasks.pop();
+          this->tasks.pop();
+        }
 
       } else {
         // timeout
-        // std::cout << "timeout" << std::endl;
+        //std::cout << "timeout" << std::endl;
         timeout = true;
       }
     }
   }
+  //std::cout<<"Actual batch size: "<<states.size()<<" getlock_cnt: "<<getlock_cnt<<std::endl;
+  //auto finish = std::chrono::steady_clock::now();
+  //auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(finish - start);
+  //std::cout <<"Time to acquire locks and get a batch is: " << duration.count() << "ns" << std::endl;
 
   // inputs empty
   if (states.size() == 0) {
@@ -110,6 +124,7 @@ void NeuralNetwork::infer() {
   }
 
   // infer
+  //auto start_infer = std::chrono::steady_clock::now();
   std::vector<torch::jit::IValue> inputs{
       this->use_gpu ? torch::cat(states, 0).to(at::kCUDA)
                     : torch::cat(states, 0)};
@@ -135,4 +150,7 @@ void NeuralNetwork::infer() {
 
     promises[i].set_value(std::move(temp));
   }
+  //auto finish_infer = std::chrono::steady_clock::now();
+  //auto duration_infer = std::chrono::duration_cast<std::chrono::nanoseconds>(finish_infer - start_infer);
+  //std::cout << "Time to infer is: " << duration_infer.count() << "ns" << std::endl;
 }

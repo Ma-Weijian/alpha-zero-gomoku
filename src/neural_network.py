@@ -160,6 +160,7 @@ class NeuralNetWorkWrapper():
 
             # extract train data
             board_batch, last_action_batch, cur_player_batch, p_batch, v_batch = list(zip(*train_data))
+            # board_batch = np.ndarray(board_batch)
 
             state_batch = self._data_convert(board_batch, last_action_batch, cur_player_batch)
             p_batch = torch.Tensor(p_batch).cuda() if self.train_use_gpu else torch.Tensor(p_batch)
@@ -190,6 +191,7 @@ class NeuralNetWorkWrapper():
            return numpy
         """
         board_batch, last_action_batch, cur_player_batch = list(zip(*feature_batch))
+        # board_batch = np.ndarray(board_batch)
         states = self._data_convert(board_batch, last_action_batch, cur_player_batch)
 
         self.neural_network.eval()

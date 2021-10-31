@@ -77,7 +77,7 @@ class Leaner():
             self.nnet.save_model('models', "best_checkpoint")
 
         for itr in range(1, self.num_iters + 1):
-            print("ITER :: {}".format(itr))
+            print("ITER :: {}".format(itr), time.time())
 
             # self play in parallel
             libtorch = NeuralNetwork('./models/checkpoint.pt',
@@ -136,6 +136,7 @@ class Leaner():
         ends, the outcome of the game is used to assign values to each example
         in train_examples.
         """
+        start_time = time.time()
         train_examples = []
 
         player1 = MCTS(libtorch, self.num_mcts_threads, self.c_puct,
@@ -198,6 +199,7 @@ class Leaner():
             ended, winner = gomoku.get_game_status()
             if ended == 1:
                 # b, last_action, cur_player, p, v
+                print("A game ends, duration:", time.time()-start_time)
                 return [(x[0], x[1], x[2], x[3], x[2] * winner) for x in train_examples]
 
     def contest(self, network1, network2, num_contest):

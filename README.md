@@ -1,6 +1,9 @@
 # AlphaZero Gomoku
 A multi-threaded implementation of AlphaZero
 
+## Updates
+Added one line of code and removed ~45% of mutex lock requirements, brings about 20%+ speed improvements.
+
 ## Features
 * Easy Free-style Gomoku
 * Tree/Root Parallelization with Virtual Loss and LibTorch
@@ -26,10 +29,11 @@ Edit config.py
 # Add LibTorch/SWIG to environment variable $PATH
 
 # Compile Python extension
+* 注意这边需要在find\_package(Torch REQUIRED)前面加上链接到你的conda中torch的CMAKE\_PREFIX\_PATH.
 mkdir build
 cd build
 cmake .. -DCMAKE_PREFIX_PATH=path/to/libtorch -DCMAKE_BUILD_TYPE=Release
-cmake --build
+cmake --build .
 
 # Run
 cd ../test

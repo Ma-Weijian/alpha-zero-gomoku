@@ -1,11 +1,11 @@
 config = {
     # gomoku
-    'n': 15,                                    # board size
+    'n': 19,                                    # board size
     'n_in_row': 5,                              # n in row
 
     # mcts
     'libtorch_use_gpu' : True,                  # libtorch use cuda
-    'num_mcts_threads': 4,                      # mcts threads number
+    'num_mcts_threads': 16,                      # mcts threads number
     'num_mcts_sims': 1600,                      # mcts simulation times
     'c_puct': 5,                                # puct coeff
     'c_virtual_loss': 3,                        # virtual loss coeff
@@ -21,8 +21,8 @@ config = {
 
     # train
     'num_iters': 10000,                         # train iterations
-    'num_eps': 10,                              # self play times in per iter
-    'num_train_threads': 10,                    # self play in parallel
+    'num_eps': 64,                              # self play times in per iter
+    'num_train_threads': 32,                    # self play in parallel
     'num_explore': 5,                           # explore step in a game
     'temp': 1,                                  # temperature
     'dirichlet_alpha': 0.3,                     # action noise in self play games
