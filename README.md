@@ -1,4 +1,4 @@
-gomoku# AlphaZero Gomoku
+# AlphaZero Gomoku
 A multi-threaded implementation of AlphaZero
 
 ## Updates
