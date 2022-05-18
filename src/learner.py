@@ -8,6 +8,7 @@ import pickle
 import concurrent.futures
 import random
 from functools import reduce
+import whr
 
 import sys
 sys.path.append('../build')
@@ -15,6 +16,8 @@ from library import MCTS, Gomoku, NeuralNetwork
 
 from neural_network import NeuralNetWorkWrapper
 from gomoku_gui import GomokuGUI
+
+prev_match_results = [(1, 0, 10, 0, 0, 20), (2, 1, 10, 0, 0, 40)]
 
 def tuple_2d_to_numpy_2d(tuple_2d):
     # help function
@@ -44,6 +47,7 @@ class Leaner():
         self.temp = config['temp']
         self.update_threshold = config['update_threshold']
         self.num_explore = config['num_explore']
+        self.use_simsiam = config['use_simsiam']
 
         self.examples_buffer = deque([], maxlen=config['examples_buffer_max_len'])
 
@@ -58,7 +62,7 @@ class Leaner():
         self.batch_size = config['batch_size']
         self.epochs = config['epochs']
         self.nnet = NeuralNetWorkWrapper(config['lr'], config['l2'], config['num_layers'],
-                                         config['num_channels'], config['n'], self.action_size, config['train_use_gpu'], self.libtorch_use_gpu)
+                                         config['num_channels'], config['n'], self.action_size, config['use_simsiam'], config['simsiam_loss_factor'], config['train_use_gpu'], self.libtorch_use_gpu)
 
         # start gui
         t = threading.Thread(target=self.gomoku_gui.loop)
@@ -66,7 +70,21 @@ class Leaner():
 
     def learn(self):
         # train the model by self play
-
+        match_result = whr.Base(config={'w2': 30})
+        current_model = 1
+        for match in prev_match_results:
+            current_model = match[0]
+            for i in range(match[2]):
+                match_result.create_game('player_'+'{}'.format(match[0]), 'player_'+'{}'.format(match[1]), 'B', match[5])
+            for i in range(match[3]):
+                match_result.create_game('player_'+'{}'.format(match[0]), 'player_'+'{}'.format(match[1]), 'W', match[5])
+            for i in range(match[4]):
+                match_result.create_game('player_'+'{}'.format(match[0]), 'player_'+'{}'.format(match[1]), 'D', match[5])
+        fianl_match = prev_match_results[-1]
+        if float(fianl_match[2]) / (fianl_match[2] + fianl_match[3]) > self.update_threshold:
+            current_model += 1
+        
+        
         if path.exists(path.join('models', 'checkpoint.example')):
             print("loading checkpoint...")
             self.nnet.load_model()
@@ -75,7 +93,7 @@ class Leaner():
             # save torchscript
             self.nnet.save_model()
             self.nnet.save_model('models', "best_checkpoint")
-
+        
         for itr in range(1, self.num_iters + 1):
             print("ITER :: {}".format(itr), time.time())
 
@@ -116,11 +134,20 @@ class Leaner():
                                               self.libtorch_use_gpu, self.num_mcts_threads * self.num_train_threads // 2)
 
                 one_won, two_won, draws = self.contest(libtorch_current, libtorch_best, self.num_contest)
-                print("NEW/PREV WINS : %d / %d ; DRAWS : %d" % (one_won, two_won, draws))
+                print(one_won, two_won, draws)
+                for i in range(one_won):
+                    match_result.create_game('player_'+'{}'.format(current_model), 'player_'+'{}'.format(current_model-1), 'B', itr)
+                for i in range(two_won):
+                    match_result.create_game('player_'+'{}'.format(current_model), 'player_'+'{}'.format(current_model-1), 'W', itr)  
+                for i in range(draws):
+                    match_result.create_game('player_'+'{}'.format(current_model), 'player_'+'{}'.format(current_model-1), 'D', itr)              
+                match_result.iterate_until_converge(verbose=False)
+                print(match_result.get_ordered_ratings())
 
                 if one_won + two_won > 0 and float(one_won) / (one_won + two_won) > self.update_threshold:
                     print('ACCEPTING NEW MODEL')
                     self.nnet.save_model('models', "best_checkpoint")
+                    current_model += 1
                 else:
                     print('REJECTING NEW MODEL')
 
@@ -167,9 +194,12 @@ class Leaner():
             last_action = gomoku.get_last_move()
             cur_player = gomoku.get_current_color()
 
-            sym = self.get_symmetries(board, prob, last_action)
-            for b, p, a in sym:
-                train_examples.append([b, a, cur_player, p])
+
+            res = self.get_move_aug(board, prob, last_action)
+            for moved_board, moved_prob, moved_last_act in res:
+                sym = self.get_symmetries(moved_board, moved_prob, moved_last_act)
+                for b, p, a in sym:
+                    train_examples.append([b, a, cur_player, p])
 
             # dirichlet noise
             legal_moves = list(gomoku.get_legal_moves())
@@ -282,6 +312,82 @@ class Leaner():
                     newAction = np.fliplr(newAction)
                 l += [(newB, newPi.ravel(), np.argmax(newAction) if last_action != -1 else -1)]
         return l
+
+    def get_move_aug(self, board, pi, last_action):
+        if last_action == -1:
+            return [(board, pi, last_action)]
+        assert(len(pi) == self.action_size)  # 1 for pass
+
+        pi = pi.reshape(self.n, self.n)
+        # print(board)
+        # print(pi)
+        # dir: up down, left, right        
+        threshold = self.n_in_row-1
+        # print(board.shape, pi.shape, last_action)
+
+        last_x, last_y = last_action // self.n, last_action % self.n
+        act_dir = [max(0,last_x-threshold), max(0,self.n-1-threshold-last_x), max(0,last_y-threshold), max(0,self.n-1-threshold-last_y)]
+        # print(act_dir)
+        board_dir = []
+        for i in range(len(board)):
+            if not (np.count_nonzero(board[i]) == 0):
+                board_dir.append(max(0,i-threshold))
+                break
+        for i in range(len(board)-1, -1, -1):
+            if not (np.count_nonzero(board[i]) == 0):
+                board_dir.append(max(0,len(board)-i-threshold))
+                break
+        board_trans = np.transpose(board)
+        for i in range(len(board_trans)):
+            if not (np.count_nonzero(board_trans[i]) == 0):
+                board_dir.append(max(0,i-threshold))
+                break
+        for i in range(len(board_trans)-1, -1, -1):
+            if not (np.count_nonzero(board_trans[i]) == 0):
+                board_dir.append(max(0,len(board_trans)-i-threshold))
+                break
+        pi_dir = []
+        for i in range(len(pi)):
+            if not (np.count_nonzero(pi[i]) == 0):
+                pi_dir.append(max(0,i-threshold))
+                break
+        for i in range(len(pi)-1, -1, -1):
+            if not (np.count_nonzero(pi[i]) == 0):
+                pi_dir.append(max(0,len(pi)-i-threshold))
+                break
+        pi_trans = np.transpose(pi)
+        for i in range(len(pi_trans)):
+            if not (np.count_nonzero(pi_trans[i]) == 0):
+                pi_dir.append(max(0,i-threshold))
+                break
+        for i in range(len(pi_trans)-1, -1, -1):
+            if not (np.count_nonzero(pi_trans[i]) == 0):
+                pi_dir.append(max(0,len(pi_trans)-i-threshold))
+                break
+        
+        # print(board_dir, pi_dir)
+        dir = []
+        for i in range(len(act_dir)):
+            dir.append(min(act_dir[i], board_dir[i], pi_dir[i]))
+
+        # print(dir)
+        useful_board = board[dir[0]:(-1)*dir[1], dir[2]:(-1)*dir[3]]
+        useful_pi = pi[dir[0]:(-1)*dir[1], dir[2]:(-1)*dir[3]]
+        updown_dir = dir[0] + dir[1] + 1
+        leftright_dir = dir[2] + dir[3] +1
+        size_x, size_y = useful_board.shape[0], useful_board.shape[1]
+        final_move_aug = []
+        for i in range(updown_dir):
+            for j in range(leftright_dir):
+                temp_board = np.zeros([self.n, self.n])
+                temp_pi = np.zeros([self.n, self.n])
+                temp_board[i:i+size_x, j:j+size_y] = useful_board
+                temp_pi[i:i+size_x, j:j+size_y] = useful_pi
+                x, y = last_x + i - dir[0], last_y + j - dir[2]
+                action = x*self.n + y
+                temp_pi = temp_pi.reshape(self.n*self.n)
+                final_move_aug.append((temp_board, temp_pi, action))
+        return final_move_aug
 
     def play_with_human(self, human_first=True, checkpoint_name="best_checkpoint"):
         # load best model

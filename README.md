@@ -1,4 +1,4 @@
-# AlphaZero Gomoku
+gomoku# AlphaZero Gomoku
 A multi-threaded implementation of AlphaZero
 
 ## Updates
@@ -29,16 +29,16 @@ Edit config.py
 # Add LibTorch/SWIG to environment variable $PATH
 
 # Compile Python extension
-# 注意这边需要在find\_package(Torch REQUIRED)前面加上链接到你的conda中torch的CMAKE\_PREFIX\_PATH.
+* 注意这边需要在find\_package(Torch REQUIRED)前面加上链接到你的conda中torch的CMAKE\_PREFIX\_PATH.
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=path/to/libtorch -DCMAKE_BUILD_TYPE=Release
+cmake .. -DCMAKE_PREFIX_PATH=path/to/libtorch -DCMAKE_CUDA_COMPILER="/usr/local/cuda/bin/nvcc" -DCMAKE_BUILD_TYPE=Release
 cmake --build .
 
 # Run
 cd ../test
-python learner_test.py train # train model
-python learner_test.py play  # play with human
+python leaner_test.py train # train model
+python leaner_test.py play  # play with human
 ```
 
 ## Pre-trained models

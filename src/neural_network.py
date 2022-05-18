@@ -17,7 +17,6 @@ def conv3x3(in_channels, out_channels, stride=1):
     return nn.Conv2d(in_channels, out_channels, kernel_size=3,
                      stride=stride, padding=1, bias=False)
 
-
 class ResidualBlock(nn.Module):
     # Residual block
     def __init__(self, in_channels, out_channels, stride=1):
@@ -79,6 +78,30 @@ class NeuralNetWork(nn.Module):
         self.v_fc2 = nn.Linear(256, 1)
         self.tanh = nn.Tanh()
 
+        # simsiam
+        self.proj_hid = 2048
+        self.proj_out = 2048
+        self.pred_hid = 512
+        self.pred_out = 2048
+        self.pre_proj = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.projection = nn.Sequential(
+            nn.Linear(num_channels, self.proj_hid),
+            nn.BatchNorm1d(self.proj_hid),
+            nn.ReLU(),
+            nn.Linear(self.proj_hid, self.proj_hid),
+            nn.BatchNorm1d(self.proj_hid),
+            nn.ReLU(),
+            nn.Linear(self.proj_hid, self.proj_out),
+            nn.BatchNorm1d(self.proj_out)
+        )
+
+        self.prediction = nn.Sequential(
+            nn.Linear(self.proj_out, self.pred_hid),
+            nn.BatchNorm1d(self.pred_hid),
+            nn.ReLU(),
+            nn.Linear(self.pred_hid, self.pred_out),
+        )
+
     def forward(self, inputs):
         # residual block
         out = self.res_layers(inputs)
@@ -102,6 +125,19 @@ class NeuralNetWork(nn.Module):
         v = self.tanh(v)
 
         return p, v
+    
+    def simsiam_foward(self, states, augmented_states):
+        out1 = self.res_layers(states)
+        out1 = self.pre_proj(out1).squeeze()
+        z1 = self.projection(out1)
+        p1 = self.prediction(z1)
+
+        out2 = self.res_layers(augmented_states)
+        out2 = self.pre_proj(out2).squeeze()
+        z2 = self.projection(out2)
+        p2 = self.prediction(z2)
+
+        return p1, p2, z1, z2
 
 
 class AlphaLoss(nn.Module):
@@ -126,18 +162,30 @@ class AlphaLoss(nn.Module):
 
         return value_loss + policy_loss
 
+class SimsiamLoss(nn.Module):
+    def __init__(self):
+        super(SimsiamLoss, self).__init__()
+
+    def forward(self, p, z):
+        z = z.detach()
+
+        p = F.normalize(p, p=2, dim=1)
+        z = F.normalize(z, p=2, dim=1)
+        return -(p * z).sum(dim=1).mean()
 
 class NeuralNetWorkWrapper():
     """train and predict
     """
 
-    def __init__(self, lr, l2, num_layers, num_channels, n, action_size, train_use_gpu=True, libtorch_use_gpu=True):
+    def __init__(self, lr, l2, num_layers, num_channels, n, action_size, use_simsiam, simsiam_loss_factor, train_use_gpu=True, libtorch_use_gpu=True):
         """ init
         """
         self.lr = lr
         self.l2 = l2
         self.num_channels = num_channels
         self.n = n
+        self.use_simsiam = use_simsiam
+        self.simsiam_loss_factor = simsiam_loss_factor
 
         self.libtorch_use_gpu = libtorch_use_gpu
         self.train_use_gpu = train_use_gpu
@@ -148,6 +196,7 @@ class NeuralNetWorkWrapper():
 
         self.optim = Adam(self.neural_network.parameters(), lr=self.lr, weight_decay=self.l2)
         self.alpha_loss = AlphaLoss()
+        self.simsiam_loss = SimsiamLoss()
 
     def train(self, example_buffer, batch_size, epochs):
         """train neural network
@@ -156,10 +205,13 @@ class NeuralNetWorkWrapper():
             self.neural_network.train()
 
             # sample
-            train_data = random.sample(example_buffer, batch_size)
+            if len(example_buffer) > batch_size:
+                train_data = random.sample(example_buffer, batch_size)
+            else:
+                train_data = example_buffer
 
             # extract train data
-            board_batch, last_action_batch, cur_player_batch, p_batch, v_batch = list(zip(*train_data))
+            board_batch, simsiam_augmented_board_batch, last_action_batch, simsiam_augmented_action_batch, cur_player_batch, p_batch, v_batch = list(zip(*train_data))
             # board_batch = np.ndarray(board_batch)
 
             state_batch = self._data_convert(board_batch, last_action_batch, cur_player_batch)
@@ -173,6 +225,17 @@ class NeuralNetWorkWrapper():
             # forward + backward + optimize
             log_ps, vs = self.neural_network(state_batch)
             loss = self.alpha_loss(log_ps, vs, p_batch, v_batch)
+
+            # use simsiam-like self-supervised learning to train the backbone
+            if self.use_simsiam:
+                simsiam_state_batch = self._data_convert(simsiam_augmented_board_batch, simsiam_augmented_action_batch, cur_player_batch)
+                p1, p2, z1, z2 = self.neural_network.simsiam_foward(state_batch, simsiam_state_batch)
+
+                d1 = self.simsiam_loss(p1, z2) / 2.
+                d2 = self.simsiam_loss(p2, z1) / 2.
+                sim_loss = d1 + d2
+                loss += self.simsiam_loss_factor * sim_loss
+
             loss.backward()
 
             self.optim.step()
@@ -184,7 +247,10 @@ class NeuralNetWorkWrapper():
                 np.sum(new_p * np.log(new_p + 1e-10), axis=1)
             )
 
-            print("EPOCH: {}, LOSS: {}, ENTROPY: {}".format(epo, loss.item(), entropy))
+            if self.use_simsiam:
+                print("EPOCH: {}, LOSS: {}, SIMSIAM LOSS: {}, ENTROPY: {}".format(epo, loss.item(), sim_loss.item(), entropy))
+            else:
+                print("EPOCH: {}, LOSS: {}, ENTROPY: {}".format(epo, loss.item(), entropy))
 
     def infer(self, feature_batch):
         """predict p and v by raw input

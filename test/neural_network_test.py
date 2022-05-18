@@ -26,8 +26,9 @@ if __name__ == "__main__":
     num_channels = 128
     n = 5
     action_size = n ** 2
+    use_simsiam = True
 
-    policy_value_net = neural_network.NeuralNetWorkWrapper(lr, l2, num_layers, num_channels, n, action_size)
+    policy_value_net = neural_network.NeuralNetWorkWrapper(lr, l2, num_layers, num_channels, n, action_size, use_simsiam)
 
     # test data convert
     board_batch = [[[1, 0, -1, 0, -1], [1, 0, -1, 0, -1], [1, 0, -1, 0, -1], [1, 0, -1, 0, -1], [1, 0, -1, 0, -1]],
@@ -60,7 +61,7 @@ if __name__ == "__main__":
     print('infer \n', policy_value_net.infer(list(zip(board_batch, last_action_batch, cur_player_batch))))
 
     # test libtorch
-    nn = neural_network.NeuralNetWorkWrapper(lr, l2, 4, 256, 15, 225, True, True)
+    nn = neural_network.NeuralNetWorkWrapper(lr, l2, 4, 256, 15, 225, True, True, use_simsiam)
     nn.save_model(folder="models", filename="checkpoint")
     # nn.load_model(folder="models", filename="checkpoint")
 

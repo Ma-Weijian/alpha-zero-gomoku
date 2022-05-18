@@ -5,6 +5,18 @@
 
 #include <mcts.h>
 
+// About the action priors and visit counts
+// The larger the action priors, or other factors like visit counts
+// the more likely the action will be executed by simulation, 
+// and the visit counts will go up.
+// while the bad moves will be visited less 
+// as they will bring about bad results.  
+// However, the simulation is a trade-off between exploration and exploitation.
+// So some moves visited less frequent will be explores/
+// But the execution of moves is regarded to th rate of winning
+// Hence the execution of move is only related to the number of visit counts.
+// It is a trade-off between exploration and exploitation.
+
 // TreeNode
 TreeNode::TreeNode()
     : parent(nullptr),
@@ -104,6 +116,7 @@ void TreeNode::expand(const std::vector<double> &action_priors) {
   }
 }
 
+// update the q_sa and n_visited
 void TreeNode::backup(double value) {
   // If it is not root, this node's parent should be updated first
   if (this->parent != nullptr) {
@@ -185,6 +198,9 @@ void MCTS::tree_deleter(TreeNode *t) {
   delete t;
 }
 
+// here the action probs are simply calculated by counting the number of visits
+// not related to policy networks and value networks
+// the policy and value networks are used at simulate functions
 std::vector<double> MCTS::get_action_probs(Gomoku *gomoku, double temp) {
   // submit simulate tasks to thread_pool
   std::vector<std::future<void>> futures;
@@ -241,6 +257,14 @@ std::vector<double> MCTS::get_action_probs(Gomoku *gomoku, double temp) {
   }
 }
 
+// the simulate function works as follows:
+// first use the select() function 
+// to find the leaf node to be simulated via p_sa and q_sa.
+// when the leaf is reached, we first judge whether the game ends,
+// then we get the action priors and values using neural networks
+// after that, we expand the leaves using the action priors predicted by the network
+// finally the tree is backed up by the value 
+// predicted by the network or the actual outcome
 void MCTS::simulate(std::shared_ptr<Gomoku> game) {
   // execute one simulation
   auto node = this->root.get();

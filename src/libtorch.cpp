@@ -89,7 +89,7 @@ void NeuralNetwork::infer() {
 
   bool timeout = false;
   //auto start = std::chrono::steady_clock::now();
-  int getlock_cnt = 0;
+  //int getlock_cnt = 0;
   while (states.size() < this->batch_size && !timeout) {
     // pop task
     {
@@ -97,7 +97,7 @@ void NeuralNetwork::infer() {
       if (this->cv.wait_for(lock, 1ms,
                             [this] { return this->tasks.size() > 0; })) {
         //while (states.size() < 4 && this->tasks.size() > 0){
-        getlock_cnt++;
+        //getlock_cnt++;
         while (states.size() < this->batch_size && this->tasks.size() > 0){  
           auto task = std::move(this->tasks.front());
           states.emplace_back(std::move(task.first));
