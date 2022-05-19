@@ -1,7 +1,6 @@
 from collections import deque
 from nis import match
 from os import path, mkdir
-import threading
 import time
 import math
 import numpy as np
@@ -14,31 +13,18 @@ import os
 
 import sys
 sys.path.append('../build')
-from library import MCTS, Gomoku, NeuralNetwork
+from library import NeuralNetwork
 
 from neural_network import NeuralNetWorkWrapper
-from gomoku_gui import GomokuGUI
 from gomoku_rating_utils import GomokuTracker
+from game_interface import GameInterface
 
 prev_match_results = []
-
-def tuple_2d_to_numpy_2d(tuple_2d):
-    # help function
-    # convert type
-    res = [None] * len(tuple_2d)
-    for i, tuple_1d in enumerate(tuple_2d):
-        res[i] = list(tuple_1d)
-    return np.array(res)
-
 
 class League_Trainer():
     def __init__(self, config):
         # see config.py
-        # gomoku
-        self.n = config['n']
-        self.n_in_row = config['n_in_row']
-        self.gomoku_gui = GomokuGUI(config['n'], config['human_color'])
-        self.action_size = config['action_size']
+        self.game_engine = GameInterface(config)
 
         # train
         self.num_iters = config['num_iters']
@@ -46,28 +32,17 @@ class League_Trainer():
         self.num_train_threads = config['num_train_threads']
         self.check_freq = config['check_freq']
         self.num_contest = config['num_contest']
-        self.dirichlet_alpha = config['dirichlet_alpha']
-        self.temp = config['temp']
         self.update_threshold = config['update_threshold']
-        self.num_explore = config['num_explore']
-        self.noise_min = config['noise_min']
-        self.noise_max = config['noise_max']
+        self.action_size = config['action_size']
+
 
         self.examples_buffer_main_agent = deque([], maxlen=config['examples_buffer_max_len'])
         # These two buffers should be cleaned when a checkpoint is saved
         self.examples_buffer_main_exploiter = deque([], maxlen=config['examples_buffer_max_len'])
         self.examples_buffer_league_exploiter = deque([], maxlen=config['examples_buffer_max_len'])
 
-        # train with simsiam
-        self.simsiam_move_rate = config['simsiam_move_rate']
-        self.simsiam_turn_rate = config['simsiam_turn_rate']
-        self.simsiam_flip_rate = config['simsiam_flip_rate']
-        
 
         # mcts
-        self.num_mcts_sims = config['num_mcts_sims']
-        self.c_puct = config['c_puct']
-        self.c_virtual_loss = config['c_virtual_loss']
         self.num_mcts_threads = config['num_mcts_threads']
         self.libtorch_use_gpu = config['libtorch_use_gpu']
 
@@ -87,7 +62,6 @@ class League_Trainer():
 
         self.main_agent_discard_rate = config['main_agent_discard_rate']
 
-        self.apply_turn = config['apply_turn']
 
         self.main_agent_models = []
         self.discarded_main_agent = []
@@ -110,9 +84,6 @@ class League_Trainer():
 
         self.gomoku_tracker = GomokuTracker(self.w2, self.update_threshold)
 
-        # start gui
-        t = threading.Thread(target=self.gomoku_gui.loop)
-        t.start()
     
     def init_models(self):
         if path.exists(path.join('models', 'checkpoint.example')):
@@ -135,7 +106,7 @@ class League_Trainer():
                                      self.libtorch_use_gpu, self.num_mcts_threads * self.num_train_threads)
             itr_examples = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_train_threads) as executor:
-                futures = [executor.submit(self.self_play, itr, 1 if itr % 2 else -1, libtorch, libtorch, k, k == 1) for k in range(1, self.num_eps + 1)]
+                futures = [executor.submit(self.game_engine.play, itr, 1 if itr % 2 else -1, libtorch, libtorch, k, k == 1) for k in range(1, self.num_eps + 1)]
                 for k, f in enumerate(futures):
                     examples, _, _ = f.result()
                     itr_examples += examples
@@ -334,9 +305,6 @@ class League_Trainer():
                 self.main_agent_models.remove(i)
                 self.discarded_main_agent.append(i)
 
-    def get_exploration_rate(self, iter):
-        expl_rate = self.noise_min + 0.5 * (self.noise_max-self.noise_min) * (1+math.cos(iter/self.check_freq * math.pi))
-        return expl_rate
 
     def league_train(self):
         self.gomoku_tracker.init_result_trackers(prev_match_results)
@@ -372,7 +340,7 @@ class League_Trainer():
                 assert self.num_eps % len(contest_list) == 0
                 for i in range(self.num_eps):
                     futures.append(
-                        executor.submit(self.self_play, itr, 1, contest_list[i%len(contest_list)][0], contest_list[i%len(contest_list)][1], i%len(contest_list), i == 1)
+                        executor.submit(self.game_engine.play, itr, 1, contest_list[i%len(contest_list)][0], contest_list[i%len(contest_list)][1], i%len(contest_list), i == 1)
                     )
                 for k, f in enumerate(futures):
                     examples, index, winner = f.result()
@@ -443,393 +411,6 @@ class League_Trainer():
 
             for i in self.gomoku_tracker.get_ordered_ratings():
                 print(i)
-
-
-            
-    def self_play(self, iter, first_color, libtorch_player1, libtorch_player2, index, show):
-        """
-        This function executes one episode of self-play, starting with player 1.
-        As the game is played, each turn is added as a training example to
-        train_examples. The game is played till the game ends. After the game
-        ends, the outcome of the game is used to assign values to each example
-        in train_examples.
-        """
-        start_time = time.time()
-        train_examples = []
-
-        player1 = MCTS(libtorch_player1, self.num_mcts_threads, self.c_puct,
-                    self.num_mcts_sims, self.c_virtual_loss, self.action_size)
-        player2 = MCTS(libtorch_player2, self.num_mcts_threads, self.c_puct,
-            self.num_mcts_sims, self.c_virtual_loss, self.action_size)
-        players = [player2, None, player1]
-        player_index = 1
-
-        gomoku = Gomoku(self.n, self.n_in_row, first_color)
-
-        if show:
-            self.gomoku_gui.reset_status()
-
-        episode_step = 0
-        while True:
-            episode_step += 1
-            player = players[player_index + 1]
-
-            # get action prob
-            if episode_step <= self.num_explore:
-                prob = np.array(list(player.get_action_probs(gomoku, self.temp)))
-            else:
-                prob = np.array(list(player.get_action_probs(gomoku, 0)))
-
-            # generate sample
-            board = tuple_2d_to_numpy_2d(gomoku.get_board())
-            last_action = gomoku.get_last_move()
-            cur_player = gomoku.get_current_color()
-
-            train_examples.append([board, prob, last_action, cur_player])
-
-            # dirichlet noise
-            legal_moves = list(gomoku.get_legal_moves())
-            noise = self.get_exploration_rate(iter) * np.random.dirichlet(self.dirichlet_alpha * np.ones(np.count_nonzero(legal_moves)))
-
-            prob = (1-self.get_exploration_rate(iter)) * prob
-            j = 0
-            for i in range(len(prob)):
-                if legal_moves[i] == 1:
-                    prob[i] += noise[j]
-                    j += 1
-            prob /= np.sum(prob)
-
-            # execute move
-            action = np.random.choice(len(prob), p=prob)
-
-            if show:
-                self.gomoku_gui.execute_move(cur_player, action)
-            gomoku.execute_move(action)
-            player1.update_with_move(action)
-            player2.update_with_move(action)
-
-            # next player
-            player_index = -player_index
-
-            # is ended
-            ended, winner = gomoku.get_game_status()
-            if ended == 1:
-                # b, last_action, cur_player, p, v
-                # print("A game ends, duration:", time.time()-start_time)
-                final_board, final_prob, final_action, _ = train_examples[-1]
-                dir = self.get_aug_scale(final_board, final_prob, final_action)
-                turn_45 = self.apply_turn
-                if turn_45:
-                    if self.n - dir[0] - dir[1] <= self.n // 2 + 1 and self.n - dir[2] - dir[3] <= self.n // 2 + 1:  
-                        turn_45 = (random.random() < 0.1)
-                        if turn_45:
-                            turned_board, turned_prob, turned_action = self.turn(final_board, final_prob, final_action, dir)
-                            turned_dir = self.get_aug_scale(turned_board, turned_prob, turned_action)
-                    else:
-                        turn_45 = False
-
-                augmented_examples = []
-                # print(dir, len(train_examples))
-                for board, prob, last_action, temp_player in train_examples:
-                    if not turn_45 or last_action == -1:
-                        res = self.get_move_aug(board, prob, last_action, temp_player, dir)
-                    else:
-                        turned_board, turned_prob, turned_action = self.turn(board, prob, last_action, dir)
-                        # print(turned_board, turned_prob, turned_action, turned_dir)
-                        res = self.get_move_aug(turned_board, turned_prob, turned_action, temp_player, turned_dir)
-                    # print(len(res), len(augmented_examples))
-                    for moved_board, moved_prob, moved_last_act, res_player in res:
-                        sym = self.get_symmetries(moved_board, moved_prob, moved_last_act)
-                        for b, p, a in sym:
-                            simsiam_augmented_board, simsiam_augmented_action = self.simsiam_augment(b, a)
-                            augmented_examples.append([b, simsiam_augmented_board, a, simsiam_augmented_action, res_player, p])
-                # print(len(augmented_examples))
-
-                # b, simsiam_augmented_board, a, simsiam_augmented_action, res_player, p, reward = res_player*winner
-                return [(x[0], x[1], x[2], x[3], x[4], x[5], x[4] * winner) for x in augmented_examples], index, winner
-
-    def contest(self, network1, network2, num_contest):
-        """compare new and old model
-           Args: player1, player2 is neural network
-           Return: one_won, two_won, draws
-        """
-        one_won, two_won, draws = 0, 0, 0
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_train_threads) as executor:
-            futures = [executor.submit(\
-                self._contest, network1, network2, 1 if k <= num_contest // 2 else -1, k == 1) for k in range(1, num_contest + 1)]
-            for f in futures:
-                winner = f.result()
-                if winner == 1:
-                    one_won += 1
-                elif winner == -1:
-                    two_won += 1
-                else:
-                    draws += 1
-
-        return one_won, two_won, draws
-
-    def _contest(self, network1, network2, first_player, show):
-        # create MCTS
-        player1 = MCTS(network1, self.num_mcts_threads, self.c_puct,
-            self.num_mcts_sims, self.c_virtual_loss, self.action_size)
-        player2 = MCTS(network2, self.num_mcts_threads, self.c_puct,
-                    self.num_mcts_sims, self.c_virtual_loss, self.action_size)
-
-        # prepare
-        players = [player2, None, player1]
-        player_index = first_player
-        gomoku = Gomoku(self.n, self.n_in_row, first_player)
-        if show:
-            self.gomoku_gui.reset_status()
-
-        # play
-        while True:
-            player = players[player_index + 1]
-
-            # select best move
-            prob = player.get_action_probs(gomoku)
-            best_move = int(np.argmax(np.array(list(prob))))
-
-            # execute move
-            gomoku.execute_move(best_move)
-            if show:
-                self.gomoku_gui.execute_move(player_index, best_move)
-
-            # check game status
-            ended, winner = gomoku.get_game_status()
-            if ended == 1:
-                return winner
-
-            # update search tree
-            player1.update_with_move(best_move)
-            player2.update_with_move(best_move)
-
-            # next player
-            player_index = -player_index
-    
-    def simsiam_augment(self, board, last_action):
-        dice_move = random.random()
-        fake_pi = np.zeros(self.n * self.n)
-        fake_player = 1
-        if dice_move < self.simsiam_move_rate:
-            dir = self.get_aug_scale(board, fake_pi, last_action)
-            temp_aug = self.get_move_aug(board, fake_pi, last_action, fake_player, dir)
-            choice = random.sample(temp_aug, 1)[0]
-            board, last_action = choice[0], choice[2]
-        
-        dice_turn, dice_flip = random.random(), random.random()
-        if dice_turn < self.simsiam_turn_rate or dice_flip < self.simsiam_flip_rate:
-            temp_turn = self.get_symmetries(board, fake_pi, last_action)
-            idx = -1
-            if not dice_turn < self.simsiam_turn_rate:
-                # it must has been fliped here
-                idx = 7
-            else:
-                idx = random.randint(0, 2)
-                if dice_flip < self.simsiam_flip_rate:
-                    idx += 4
-            choice = temp_turn[idx]
-            board, last_action = choice[0], choice[2]
-
-
-        return board, last_action
-
-    def get_symmetries(self, board, pi, last_action):
-        # mirror, rotational
-        assert(len(pi) == self.action_size)  # 1 for pass
-
-        # print(last_action)
-        pi_board = np.reshape(pi, (self.n, self.n))
-        last_action_board = np.zeros((self.n, self.n))
-        # print(board)
-        # print(pi)
-        # print(last_action, last_action // self.n, last_action % self.n)
-        last_action_board[last_action // self.n][last_action % self.n] = 1
-        l = []
-
-        for i in range(1, 5):
-            for j in [True, False]:
-                newB = np.rot90(board, i)
-                newPi = np.rot90(pi_board, i)
-                newAction = np.rot90(last_action_board, i)
-                if j:
-                    newB = np.fliplr(newB)
-                    newPi = np.fliplr(newPi)
-                    newAction = np.fliplr(newAction)
-                l += [(newB, newPi.ravel(), np.argmax(newAction) if last_action != -1 else -1)]
-        return l
-
-    def get_aug_scale(self, board, pi, last_action):
-        if last_action == -1:
-            return [0, 0, 0, 0]
-        assert(len(pi) == self.action_size)  # 1 for pass
-        pi = pi.reshape(self.n, self.n)
-        # print(board)
-        # print(pi)
-        # dir: up down, left, right        
-        # threshold = self.n_in_row-1
-        threshold = 0
-        # print(board.shape, pi.shape, last_action)
-
-        last_x, last_y = last_action // self.n, last_action % self.n
-        act_dir = [max(0,last_x-threshold), max(0,self.n-1-threshold-last_x), max(0,last_y-threshold), max(0,self.n-1-threshold-last_y)]
-        # print(last_action, act_dir)
-        # print(act_dir)
-        board_dir = []
-        for i in range(len(board)):
-            if not (np.count_nonzero(board[i]) == 0):
-                board_dir.append(max(0,i-threshold))
-                break
-        for i in range(len(board)-1, -1, -1):
-            if not (np.count_nonzero(board[i]) == 0):
-                board_dir.append(max(0,len(board)-1-i-threshold))
-                break
-        board_trans = np.transpose(board)
-        for i in range(len(board_trans)):
-            if not (np.count_nonzero(board_trans[i]) == 0):
-                board_dir.append(max(0,i-threshold))
-                break
-        for i in range(len(board_trans)-1, -1, -1):
-            if not (np.count_nonzero(board_trans[i]) == 0):
-                board_dir.append(max(0,len(board_trans)-1-i-threshold))
-                break
-        pi_dir = []
-        for i in range(len(pi)):
-            if not (np.count_nonzero(pi[i]) == 0):
-                pi_dir.append(max(0,i-threshold))
-                break
-        else:
-            pi_dir.append(len(pi))
-        for i in range(len(pi)-1, -1, -1):
-            if not (np.count_nonzero(pi[i]) == 0):
-                pi_dir.append(max(0,len(pi)-1-i-threshold))
-                break
-        else:
-            pi_dir.append(len(pi))
-        pi_trans = np.transpose(pi)
-        for i in range(len(pi_trans)):
-            if not (np.count_nonzero(pi_trans[i]) == 0):
-                pi_dir.append(max(0,i-threshold))
-                break
-        else:
-            pi_dir.append(len(pi))
-        for i in range(len(pi_trans)-1, -1, -1):
-            if not (np.count_nonzero(pi_trans[i]) == 0):
-                pi_dir.append(max(0,len(pi_trans)-1-i-threshold))
-                break
-        else:
-            pi_dir.append(len(pi))
-        
-        # print(board_dir, pi_dir)
-        dir = []
-        for i in range(len(act_dir)):
-            dir.append(min(act_dir[i], board_dir[i], pi_dir[i]))
-        # print(dir)
-        return dir
-
-    def turn(self, board, pi, last_action, dir):
-        pi = pi.reshape(self.n, self.n)
-        offset = self.n // 2
-        temp_board = np.zeros([self.n // 2 + 1, self.n // 2 + 1])
-        temp_pi = np.zeros([self.n // 2 + 1, self.n // 2 + 1])
-        # print(temp_board.shape, temp_pi.shape)
-        # print(self.n-dir[0]-dir[1], self.n-dir[2]-dir[3], dir)
-        temp_board[:self.n-dir[0]-dir[1], :self.n-dir[2]-dir[3]] = board[dir[0]:self.n-dir[1], dir[2]:self.n-dir[3]]
-        temp_pi[:self.n-dir[0]-dir[1], :self.n-dir[2]-dir[3]] = pi[dir[0]:self.n-dir[1], dir[2]:self.n-dir[3]]
-
-
-        turned_board = np.zeros([self.n, self.n])
-        turned_pi = np.zeros([self.n, self.n])
-
-        for i in range(len(temp_board)):
-            for j in range(len(temp_board)):
-                new_i, new_j = i + offset -j, i + j
-                turned_board[new_i][new_j] = temp_board[i][j]
-                turned_pi[new_i][new_j] = temp_pi[i][j]
-        turned_pi = turned_pi.reshape(self.n * self.n)
-
-        last_x, last_y = last_action // self.n, last_action % self.n
-        x, y = last_x - dir[0], last_y - dir[2]
-        turned_x, turned_y = x + offset - y, x + y 
-        action = turned_x * self.n + turned_y
-
-        return turned_board, turned_pi, action
-
-    def get_move_aug(self, board, pi, last_action, player, dir):
-        if last_action == -1:
-            return [(board, pi, last_action, player)]
-        assert(len(pi) == self.action_size)  # 1 for pass
-        pi = pi.reshape(self.n, self.n)
-
-        last_x, last_y = last_action // self.n, last_action % self.n
-        # print(dir)
-        useful_board = board[dir[0]:self.n-dir[1], dir[2]:self.n-dir[3]]
-        useful_pi = pi[dir[0]:self.n-dir[1], dir[2]:self.n-dir[3]]
-        # print(useful_board.shape, useful_pi.shape, dir)
-        updown_dir = dir[0] + dir[1] + 1
-        leftright_dir = dir[2] + dir[3] +1
-        size_x, size_y = useful_board.shape[0], useful_board.shape[1]
-        final_move_aug = []
-        for i in range(updown_dir):
-            for j in range(leftright_dir):
-                temp_board = np.zeros([self.n, self.n])
-                temp_pi = np.zeros([self.n, self.n])
-                temp_board[i:i+size_x, j:j+size_y] = useful_board
-                temp_pi[i:i+size_x, j:j+size_y] = useful_pi
-                x, y = last_x + i - dir[0], last_y + j - dir[2]
-                # print(last_action, x, y, dir)
-                action = x*self.n + y
-                temp_pi = temp_pi.reshape(self.n*self.n)
-                final_move_aug.append((temp_board, temp_pi, action, player))
-        
-        return final_move_aug
-
-    def play_with_human(self, human_first=True, checkpoint_name="best_checkpoint"):
-        # load best model
-        libtorch_best = NeuralNetwork('./models/best_checkpoint.pt', self.libtorch_use_gpu, 12)
-        mcts_best = MCTS(libtorch_best, self.num_mcts_threads * 3, \
-             self.c_puct, self.num_mcts_sims * 6, self.c_virtual_loss, self.action_size)
-
-        # create gomoku game
-        human_color = self.gomoku_gui.get_human_color()
-        gomoku = Gomoku(self.n, self.n_in_row, human_color if human_first else -human_color)
-
-        players = ["alpha", None, "human"] if human_color == 1 else ["human", None, "alpha"]
-        player_index = human_color if human_first else -human_color
-
-        self.gomoku_gui.reset_status()
-
-        while True:
-            player = players[player_index + 1]
-
-            # select move
-            if player == "alpha":
-                prob = mcts_best.get_action_probs(gomoku)
-                best_move = int(np.argmax(np.array(list(prob))))
-                self.gomoku_gui.execute_move(player_index, best_move)
-            else:
-                self.gomoku_gui.set_is_human(True)
-                # wait human action
-                while self.gomoku_gui.get_is_human():
-                    time.sleep(0.1)
-                best_move = self.gomoku_gui.get_human_move()
-
-            # execute move
-            gomoku.execute_move(best_move)
-
-            # check game status
-            ended, winner = gomoku.get_game_status()
-            if ended == 1:
-                break
-
-            # update tree search
-            mcts_best.update_with_move(best_move)
-
-            # next player
-            player_index = -player_index
-
-        print("HUMAN WIN" if winner == human_color else "ALPHA ZERO WIN")
 
     def load_samples(self, folder="models", filename="checkpoint.example"):
         """load self.examples_buffer

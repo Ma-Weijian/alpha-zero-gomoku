@@ -142,7 +142,8 @@ class Leaner():
                 for i in range(draws):
                     match_result.create_game('player_'+'{}'.format(current_model), 'player_'+'{}'.format(current_model-1), 'D', itr)              
                 match_result.iterate_until_converge(verbose=False)
-                print(match_result.get_ordered_ratings())
+                for i in match_result.get_ordered_ratings():
+                    print(i)
 
                 if one_won + two_won > 0 and float(one_won) / (one_won + two_won) > self.update_threshold:
                     print('ACCEPTING NEW MODEL')
