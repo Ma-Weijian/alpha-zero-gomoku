@@ -1,2 +1,4 @@
 pytorch
 pygame
+whr
+matplotlib
