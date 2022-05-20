@@ -49,7 +49,7 @@ python run_agent.py play                # play with human
 ```
 
 ## GUI
-![](https://github.com/Ma-Weijian/gomoku-agent-trainer/blob/master/assets/gomoku_gui.png)
+![]()
 
 ## References
 1. Mastering the Game of Go without Human Knowledge
