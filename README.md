@@ -35,7 +35,7 @@ Edit config.py for everyting except training paradigms.
 # Add LibTorch/SWIG to environment variable $PATH
 
 # Compile Python extension
-* 注意这边需要在find\_package(Torch REQUIRED)前面加上链接到你的conda中torch的CMAKE\_PREFIX\_PATH.
+# 注意这边需要在find\_package(Torch REQUIRED)前面加上链接到你的conda中torch的CMAKE\_PREFIX\_PATH.
 mkdir build
 cd build
 cmake .. -DCMAKE_PREFIX_PATH=path/to/libtorch -DCMAKE_CUDA_COMPILER="/usr/local/cuda/bin/nvcc" -DCMAKE_BUILD_TYPE=Release
