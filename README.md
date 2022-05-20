@@ -49,6 +49,8 @@ python run_agent.py play                # play with human
 ```
 
 ## GUI
+Agentfirst
+
 ![](https://github.com/Ma-Weijian/gomoku-agent-trainer/blob/master/assets/gomoku_gui.png)
 
 ## References
