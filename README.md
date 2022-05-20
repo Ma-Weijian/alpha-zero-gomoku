@@ -1,18 +1,24 @@
-# AlphaZero Gomoku
-A multi-threaded implementation of AlphaZero
+# Gomoku Agent Trainers
+A thread pool implementation of AlphaZero and AlphaStar.
+
+Also have some data augmentation schemes on gomoku and implemented self-supervised learning methods like Simsiam on backbones of the policy-value networks. 
 
 ## Updates
+### 2021.10
 Added one line of code and removed ~45% of mutex lock requirements, brings about 20%+ speed improvements.
+### 2022.4
+Implemented a light-weight league training method which suits limited training hardware environments (such as PCs having single GPU).
+### 2022.5
+Added Simsiam on training backbones of policy-value networks.
 
 ## Features
-* Easy Free-style Gomoku
+* Easy Free-style Gomoku with no specific limitations
 * Tree/Root Parallelization with Virtual Loss and LibTorch
 * Gomoku and MCTS are written in C++
 * SWIG for Python C++ extension
-* Update 2019.7.10: supporting Ubuntu and Windows
 
 ## Args
-Edit config.py
+Edit config.py for everyting except training paradigms.
 
 ## Packages
 
