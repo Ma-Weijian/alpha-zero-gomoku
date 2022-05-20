@@ -42,14 +42,14 @@ cmake .. -DCMAKE_PREFIX_PATH=path/to/libtorch -DCMAKE_CUDA_COMPILER="/usr/local/
 cmake --build .
 
 # Run
-cd ../test
+cd ..
 python leaner_test.py train # train model in self-play
 python 
 python leaner_test.py play  # play with human
 ```
 
 ## GUI
-![](https://github.com/Ma-Weijian/gomoku-agent-trainer//blob/master/assets/gomoku_gui.png)
+![](https://github.com/Ma-Weijian/gomoku-agent-trainer/blob/master/assets/gomoku_gui.png)
 
 ## References
 1. Mastering the Game of Go without Human Knowledge
