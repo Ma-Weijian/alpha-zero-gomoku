@@ -310,7 +310,7 @@ class League_Trainer():
         self.gomoku_tracker.init_result_trackers(prev_match_results)
         
         # init every model in main agent, main exploiter and league exploiter 
-        # as the model pretrained in 20 iterations
+        # as the model pretrained in num_warmup iterations
         self.selfplay_warmup()
 
         # init the warmup neural network as the main agent, main exploiter and league exploiter
