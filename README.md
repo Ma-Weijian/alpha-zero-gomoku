@@ -43,9 +43,9 @@ cmake --build .
 
 # Run
 cd ..
-python leaner_test.py train # train model in self-play
-python 
-python leaner_test.py play  # play with human
+python run_agent.py train               # train model via self-play
+python run_agent.py league_train        # train model via league training
+python run_agent.py play                # play with human
 ```
 
 ## GUI
