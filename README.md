@@ -23,12 +23,12 @@ Edit config.py for everyting except training paradigms.
 ## Packages
 
 * Python 3.7
-* PyGame 1.9
-* PyTorch 1.2
-* [LibTorch 1.2](https://download.pytorch.org/libtorch/cu100/libtorch-shared-with-deps-1.2.0.zip)
-* [SWIG 3.0.12](https://sourceforge.net/projects/swig/files/)
-* CMake 3.8+
-* MSVC14.0/GCC6.0+
+* PyTorch 1.11.0
+* LibTorch 1.11.0
+* SWIG 4.0.1
+* CMake 3.16+
+* GCC 9.4.0+
+* Others please refer to requirements.txt
 
 ## Run
 ```
@@ -43,20 +43,13 @@ cmake --build .
 
 # Run
 cd ../test
-python leaner_test.py train # train model
+python leaner_test.py train # train model in self-play
+python 
 python leaner_test.py play  # play with human
 ```
 
-## Pre-trained models
-> Trained 2 days on GTX1070
-
-Link: https://pan.baidu.com/s/1c2Otxdl7VWFEXul-FyXaJA Password: e5y4
-
->says 啊哦，你来晚了，分享的文件已经被取消了，下次要早点哟。.
-
-
 ## GUI
-![](https://github.com/hijkzzz/alpha-zero-gomoku/blob/master/assets/gomoku_gui.png)
+![](https://github.com/Ma-Weijian/gomoku-agent-trainer//blob/master/assets/gomoku_gui.png)
 
 ## References
 1. Mastering the Game of Go without Human Knowledge
