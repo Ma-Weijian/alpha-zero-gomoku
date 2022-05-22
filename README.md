@@ -58,5 +58,6 @@ Agent first.
 2. Mastering Chess and Shogi by Self-Play with a General Reinforcement Learning Algorithm
 3. Parallel Monte-Carlo Tree Search
 4. An Analysis of Virtual Loss in Parallel MCTS
-5. github.com/suragnair/alpha-zero-general
-6. Exploring Simple Siamese Representation Learning
+5. github.com/hijkzzz/alpha-zero-gomoku
+6. github.com/suragnair/alpha-zero-general
+7. Exploring Simple Siamese Representation Learning
